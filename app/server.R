@@ -2,8 +2,10 @@
 library(shiny)
 library(shinyIncubator)
 library(shinysky)
+library(shinyTable)
+library(ggplot2)
 
-shinyServer(function(input, output) {
+shinyServer(function(input, output, session) {
 
 dat <- data.frame(month = 1:12,
                   spraystrat = rep(0,12),
@@ -17,8 +19,10 @@ dat <- data.frame(month = 1:12,
                   harvest_cost = rep(0,12),
                   net_revenue = rep(0,12))
 
-harvest <- c(0, 0, 0, 0, 0, 0, 0, 0, .32, .48, .12, .07)
 
+harvest <- c(0, 0, 0, 0, 0, 0, 0, 0, .32, .48, .12, .07)
+harvest <- data.frame(month = c("January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"), 
+                      rate = c(0, 0, 0, 0, 0, 0, 0, 0, .32, .48, .12, .07), stringsAsFactors = FALSE)
 # All possible combinations
 zeroone <- expand.grid(0:1,0:1,0:1,0:1,0:1,0:1,0:1,0:1,0:1,0:1,0:1,0:1)
 
@@ -88,10 +92,10 @@ optimal <- function(x){
   newdat$net_revenue = newdat$revenue - newdat$spray_cost - newdat$harvest_cost
   return(newdat)
   }
-
+maxmat <- 0
 comb <- function(var = 0, zeroone = zeroone){
-  pb <- txtProgressBar(min = 0, max = nrow(zeroone), initial = 0)
-  stepi <- 0
+  # pb <- txtProgressBar(min = 0, max = nrow(zeroone), initial = 0)
+  # stepi <- 0
   withProgress(message = 'Running Optimization ...', value = 0,  {
   for (i in 1:nrow(zeroone)){
     x <- zeroone[i,]
@@ -103,15 +107,22 @@ comb <- function(var = 0, zeroone = zeroone){
     }
     incProgress(1/nrow(zeroone))
   }})
+  
+  if (is.data.frame(maxmat) == TRUE){
   # Find maximum value
   optimal_scenario <- optimal(maxmat[1:12])
   optimal_scenario
   markov(maxmat[1:12])
   return(optimal_scenario)
+  } else {
+    return(0)
+  }
+  
 }
   nsp_t <- reactiveValues(cachedTbl = NULL)
   sp_t <- reactiveValues(cachedTbl = NULL)
   ii_t <- reactiveValues(cachedTbl = NULL)
+  harvest_t <- reactiveValues(cachedTbl = NULL)
   
   output$tbl1 <- renderHtable({
     if (is.null(input$tbl1)){
@@ -145,10 +156,32 @@ comb <- function(var = 0, zeroone = zeroone){
       return(input$tbl3)
     }
   }) 
+        
+        output$tbl4 <- renderHtable({
+    if (is.null(input$tbl4)){
+      tbl4 <- harvest
+      harvest_t$cachedTbl <<- tbl4
+      return(tbl4)
+    } else{
+      harvest_t$cachedTbl <<- input$tbl4
+      return(input$tbl4)
+    }
+  }) 
   
+  # Initial values setup
   values <- reactiveValues()
+  markov <- reactiveValues()
+  maxnetrevenue <- reactiveValues()
+  
   values$df <- dat
-    
+  markov$df <- markov(zeroone[100,])
+  markov_df <- markov(zeroone[100,])
+  markov_df <- gather(markov_df, "month", "value")
+  names(markov_df) <- c("month", "inf", "value") 
+  markov_df[,2] <- factor(markov_df[,2], levels = c("ni", "ab_live", "ab_dead", "cd"), labels = c("Not Inf", "AB Live", "AB Dead", "CD"))
+  #maxnetrevenue_df <- as.data.frame(reactiveValuesToList(values))
+  maxnetrevenue$df <- sum(dat[,11])
+  
     ntext <- observeEvent(input$optimize, {
     acres <<- input$acres
     proj_cherry <<- input$proj_cherry
@@ -158,14 +191,42 @@ comb <- function(var = 0, zeroone = zeroone){
     max_inf <<- input$maxinf
     nsp <<- data.matrix(as.data.frame(reactiveValuesToList(nsp_t)))
     sp <<- data.matrix(as.data.frame(reactiveValuesToList(sp_t)))
+    
+    # Initial Values
     ii <<- as.data.frame(reactiveValuesToList(ii_t))
     ii <<- ii[2]
     ii <<- t(data.matrix(ii))
-    values$df <- comb(0, zeroone)
     
+    # Harvest Values
+    harvest <<- as.data.frame(reactiveValuesToList(harvest_t))
+    harvest <<- harvest[2]
+    harvest <<- data.matrix(harvest)
+    
+    # Run optimization and get markov
+    values$df <- comb(0, zeroone)
+    if (values$df == 0){
+      js_string <- 'alert("No Optimal Solution Found");'
+      session$sendCustomMessage(type='jsCode', list(value = js_string))
+    } else{
+    spraystrat <<- values$df$spraystrat
+    markov$df <<- markov(spraystrat)
+    markov_df <<- markov(spraystrat)
+    markov_df <<- gather(markov_df, "month", "value")
+    names(markov_df) <<- c("month", "inf", "value") 
+    markov_df[,2] <- factor(markov_df[,2])
+    maxnr_df <<- as.data.frame(reactiveValuesToList(values))
+    maxnetrevenue$df <<- sum(maxnr_df[,11])
+    }
     
         },priority = 1)
-  
+  output$maxnetrevenue = renderText(maxnetrevenue$df)
+  output$markov = renderTable({markov$df})
   output$table = renderTable({values$df})
+  output$markovplot = renderPlot(ggplot(markov_df, aes(markov_df[,1], markov_df[,3], color = markov_df[,2]), group = markov_df[,2]) + geom_line() + xlab("Month") + ylab("Infestation level (%)") + ggtitle("CBB Growth Rates") + scale_x_continuous(breaks=1:12) + theme(legend.title = element_blank(), legend.text = element_text(c("nii", "ab_live", "ab_dead", "cd"))), 
+                                 width = 800, height = 400)
+  
   })
     
+#ggplot(markov_df, aes(markov_df[,1], markov_df[,3], color = markov_df[,2]), group = markov_df[,2]) + geom_line() + xlab("Month") + ylab("Infestation level (%)") + ggtitle("CBB Growth Rates") + scale_x_continuous(breaks=1:12) + theme(legend.title = element_blank(), legend.text = element_text(c("nii", "ab_live", "ab_dead", "cd"))) 
+#gg  
+#gg + theme(legend.title = element_blank(), legend.text = element_text(c("nii", "ab_live", "ab_dead", "cd"))) 

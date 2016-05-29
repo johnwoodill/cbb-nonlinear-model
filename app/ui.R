@@ -24,7 +24,7 @@ shinyUI(fluidPage(
   numericInput("price", label = h4("Price"), value = "2"),
   numericInput("maxinf", label = h4("Max Infestation"), value = "25"),
   hr(),
-  actionButton("optimize", "Optimize NB", styleclass="primary", icon = "check")),#, icon("paper-plane"),style="color: #fff; background-color: #337ab7; border-color: #2e6da4"))
+  actionButton("optimize", "Optimize Net Benefit", styleclass="primary", icon = "check")),#, icon("paper-plane"),style="color: #fff; background-color: #337ab7; border-color: #2e6da4"))
   
 # Harvest Table  
   column(2,
@@ -47,7 +47,7 @@ shinyUI(fluidPage(
 # Plots and final table
   fluidRow(
     column(4, 
-  p(h4("CBB Growth Rates")),tableOutput("markov")
+  p(h4("CBB Growth Rates")), tableOutput("markov")
     ),
   column(3,
     plotOutput("markovplot"))),
